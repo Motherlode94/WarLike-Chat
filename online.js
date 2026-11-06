@@ -1,0 +1,11 @@
+const $=id=>document.getElementById(id);let cursor=0,loading=false,connected=false;
+const notice=s=>$('feedback').textContent=s;
+async function api(path,options={}){const r=await fetch('/api/'+path,{credentials:'same-origin',...options});const data=await r.json();if(!r.ok)throw Error(data.error||'Erreur réseau');return data;}
+const post=(path,data)=>api(path,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(data)});
+async function session(){try{const {user}=await api('me');connected=!!user;$('auth').hidden=connected;$('chat').hidden=!connected;if(user){$('who').textContent=user.username;const {rooms}=await api('rooms');$('room').replaceChildren(...rooms.map(r=>{const o=document.createElement('option');o.value=r.id;o.textContent='# '+r.name;return o;}));await refresh(true);notice('Service connecté.');}else notice('Connecte-toi pour discuter en ligne.');}catch(e){connected=false;$('auth').hidden=false;$('chat').hidden=true;notice(e.message);}}
+for(const id of ['login','register'])$(id).onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{await post(id,{username:f.get('username'),password:f.get('password')});if(id==='register')notice('Compte créé : connecte-toi.');else await session();}catch(err){notice(err.message);}};
+$('logout').onclick=async()=>{try{await post('logout',{});await session();}catch(e){notice(e.message);}};
+$('room').onchange=()=>refresh(true);
+async function refresh(reset=false){if(!connected||loading)return;loading=true;try{if(reset){cursor=0;$('feed').replaceChildren();}const {messages}=await api('messages?room='+encodeURIComponent($('room').value)+'&after='+cursor);for(const m of messages){const row=document.createElement('article'),head=document.createElement('b'),text=document.createElement('p');head.textContent=m.username+' · '+new Date(m.created_at).toLocaleString('fr-FR');text.textContent=m.text;row.append(head,text);$('feed').append(row);cursor=Math.max(cursor,m.created_at);}$('feed').scrollTop=$('feed').scrollHeight;}catch(e){notice(e.message);}finally{loading=false;}}
+$('sendForm').onsubmit=async e=>{e.preventDefault();try{await post('messages',{room:$('room').value,text:$('message').value});$('message').value='';await refresh();}catch(err){notice(err.message);}};
+setInterval(()=>refresh(),3000);session();
