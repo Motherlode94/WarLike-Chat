@@ -40,8 +40,9 @@ export async function onRequest({request,env}){
   if(path==='rooms'&&method==='GET'){const r=await db.prepare('SELECT id,name,description FROM rooms ORDER BY rowid').all();return json({rooms:r.results});}
   if(path==='messages'&&method==='GET'){
    const room=url.searchParams.get('room')||'general';if(!/^[a-z0-9-]{1,48}$/.test(room))return json({error:'Salon invalide'},400);
-   const after=Number(url.searchParams.get('after')||0);if(!Number.isSafeInteger(after)||after<0)return json({error:'Curseur invalide'},400);
-   const r=await db.prepare('SELECT m.id,m.room_id,m.text,m.created_at,u.username FROM messages m JOIN users u ON u.id=m.user_id WHERE m.room_id=? AND m.created_at>? ORDER BY m.created_at ASC LIMIT 100').bind(room,after).all();
+   const after=Number(url.searchParams.get('after')||0),afterId=url.searchParams.get('afterId')||'';
+   if(!Number.isSafeInteger(after)||after<0||(afterId&&!/^[a-zA-Z0-9-]{1,64}$/.test(afterId)))return json({error:'Curseur invalide'},400);
+   const r=await db.prepare('SELECT m.id,m.room_id,m.text,m.created_at,u.username FROM messages m JOIN users u ON u.id=m.user_id WHERE m.room_id=? AND (m.created_at>? OR (m.created_at=? AND m.id>?)) ORDER BY m.created_at ASC,m.id ASC LIMIT 100').bind(room,after,after,afterId).all();
    return json({messages:r.results});
   }
   if(path==='messages'&&method==='POST'){
