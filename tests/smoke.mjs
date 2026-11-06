@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const html=readFileSync('index.html','utf8'),js=readFileSync('app.js','utf8'),css=readFileSync('style.css','utf8');
+assert.ok(html.includes('src="./app.js"'));
+assert.ok(html.includes('href="./style.css"'));
+const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(x=>x[1]);
+assert.equal(new Set(ids).size,ids.length,'duplicate HTML element ids');
+for(const [,id] of js.matchAll(/\$\('([^']+)'\)/g))assert.ok(ids.includes(id),'missing element '+id);
+assert.ok(css.length>2000,'missing app styling');
+console.log('PASS: HTML DOM contract and assets ('+ids.length+' controls)');
