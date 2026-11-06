@@ -27,3 +27,7 @@ Aucun compte fictif ni mot de passe n'est inclus dans le dépôt. Les comptes so
 Le transport des messages utilise **polling HTTP toutes les trois secondes**, pas des WebSockets. C'est une première version multiutilisateur persistante, pas encore un système temps réel haute capacité.
 
 Avant d'ouvrir la création de comptes au public : ajouter un contrôle anti-abus distribué, quotas d'inscription, modération, récupération de compte, rétention/purge, protection contre les tentatives de connexion et supervision. Le contrôle d'une requête par seconde sur les messages ne remplace pas un rate limiter robuste. Les pages Cloudflare ne deviendront fonctionnelles qu'après la création de la D1 et son binding ; la simple présence du code ne constitue pas une validation de déploiement.
+
+## Pagination robuste
+
+L'API de messages utilise maintenant un curseur composé de l'horodatage `after` et de l'identifiant `afterId`, avec tri déterministe `(created_at,id)`. Cela permet d'éviter les pertes de messages partageant le même milliseconde. La page `online.html` emploie le même curseur et recharge correctement un salon choisi pendant une requête en cours. Le transport reste du polling HTTP, pas WebSocket.
