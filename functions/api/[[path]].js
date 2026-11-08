@@ -11,7 +11,7 @@ export async function onRequest({request,env}){
  if(!['GET','POST'].includes(method))return json({error:'Méthode refusée.'},405);
  if(method==='POST'&&(url.protocol!=='https:'||request.headers.get('origin')!==url.origin||request.headers.get('sec-fetch-site')==='cross-site'))return json({error:'Origine refusée.'},403);
  try{
-  if(path==='health'&&method==='GET'){await db.prepare('SELECT id FROM chat_rooms LIMIT 1').first();return json({ok:true,mode:'warlike-server'});}
+  if(path==='validation'&&method==='GET'){const x=await server(request,env,'/api/warlike-auth/login',{method:'POST',body:JSON.stringify({login:'test-chat-inexistant',password:'faux-mot-de-passe-test'})});return json({status:x.status,expected:x.status===401})}\n  if(path==='health'&&method==='GET'){await db.prepare('SELECT id FROM chat_rooms LIMIT 1').first();return json({ok:true,mode:'warlike-server'});}
   if(path==='register'&&method==='POST')return json({error:'Utilise ton compte WarLike fourni par ton administrateur.'},403);
   if(path==='login'&&method==='POST'){
    const b=await readBody(request);if(typeof b.username!=='string'||b.username.length>254||typeof b.password!=='string'||b.password.length>256)return json({error:'Identifiants invalides.'},400);
