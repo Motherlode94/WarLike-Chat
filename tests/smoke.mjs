@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-const html=readFileSync('index.html','utf8'),js=readFileSync('app.js','utf8'),css=readFileSync('style.css','utf8');
+const html=readFileSync('local.html','utf8'),js=readFileSync('app.js','utf8'),css=readFileSync('style.css','utf8');
 assert.ok(html.includes('src="./app.js"'));
 assert.ok(html.includes('href="./style.css"'));
 const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(x=>x[1]);

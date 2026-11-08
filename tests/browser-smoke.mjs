@@ -4,7 +4,7 @@ const browser=await chromium.launch({headless:true});
 try{
  const page=await browser.newPage({viewport:{width:1280,height:800}});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
- await page.goto('http://127.0.0.1:8765/',{waitUntil:'load'});
+ await page.goto('http://127.0.0.1:8765/local.html',{waitUntil:'load'});
  await page.locator('#roomTitle').waitFor({state:'visible'});
  assert.equal(await page.locator('#rooms button').count(),4);
  await page.locator('#messageInput').fill('Test automatique WarLike');

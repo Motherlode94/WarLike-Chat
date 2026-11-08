@@ -1,7 +1,9 @@
 # WarLike Chat
 
-Prototype autonome de messagerie locale WarLike : salons, messages, recherche, gestion des conversations et sauvegarde/import JSON.
+Messagerie de salons WarLike connectée à WarLike Server. Les comptes et sessions sont vérifiés par le serveur commun ; les messages partagés sont enregistrés dans une base D1 dédiée.
 
-**Attention :** les conversations sont stockées dans le navigateur et ne sont pas partagées entre utilisateurs. L'application n'est pas un service de messagerie en ligne : une authentification serveur, un stockage persistant et un transport temps réel seront nécessaires avant son ouverture au public. Ne pas utiliser pour des informations sensibles.
+La page d’accueil ouvre le chat en ligne. Le prototype hors ligne reste disponible sur `/local` et conserve les données locales du navigateur. L’actualisation des salons utilise un polling HTTP de trois secondes.
 
-Démarrage : servir index.html, style.css et app.js avec un serveur HTTP statique.
+Le propriétaire peut retirer un message depuis le chat. Les nouveaux chargements masquent les messages retirés ; les autres utilisateurs déjà connectés peuvent devoir recharger la page. La modération centralisée depuis Tower, les messages privés, les appels et les visioconférences restent à développer.
+
+Les comptes standards sont fournis par WarLike Server. Les adresses de chat ne sont pas des adresses e-mail Internet. Les échanges de deux comptes sur le déploiement Cloudflare doivent encore être vérifiés.

@@ -1,33 +1,9 @@
-# Mode serveur — WarLike Chat
+# WarLike Chat
 
-Le prototype historique (`index.html`) reste **local**. Le nouvel écran `online.html` est une interface distincte pour la messagerie multiutilisateur.
+Messagerie de salons WarLike connectée à WarLike Server. Les comptes et sessions sont vérifiés par le serveur commun ; les messages partagés sont enregistrés dans une base D1 dédiée.
 
-## Configuration Cloudflare Pages requise
+La page d’accueil ouvre le chat en ligne. Le prototype hors ligne reste disponible sur `/local` et conserve les données locales du navigateur. L’actualisation des salons utilise un polling HTTP de trois secondes.
 
-1. Créer une base de données Cloudflare D1 pour Chat.
-2. Exécuter `migrations/0001_chat.sql` sur cette base (production).
-3. Associer la base dans les bindings du projet Cloudflare Pages sous le nom exact `CHAT_DB` (et pour la prévisualisation si nécessaire).
-4. Redéployer le site et vérifier `/api/health`, puis essayer l'inscription, la connexion et l'envoi avec deux navigateurs différents.
+Le propriétaire peut retirer un message depuis le chat. Les nouveaux chargements masquent les messages retirés ; les autres utilisateurs déjà connectés peuvent devoir recharger la page. La modération centralisée depuis Tower, les messages privés, les appels et les visioconférences restent à développer.
 
-Aucun compte fictif ni mot de passe n'est inclus dans le dépôt. Les comptes sont créés par inscription. Les mots de passe sont dérivés côté serveur avec PBKDF2 SHA-256 (210 000 itérations et sel individuel). Les sessions sont stockées en D1 par empreinte SHA-256 de jeton aléatoire et exposées dans un cookie HttpOnly, Secure et SameSite=Strict. Le client ne stocke pas le mot de passe.
-
-## API
-
-- `GET /api/health` : état du service et de la base.
-- `POST /api/register` : inscription (username, password).
-- `POST /api/login` : connexion et cookie de session.
-- `POST /api/logout` : révocation de session.
-- `GET /api/me` : utilisateur de session.
-- `GET /api/rooms` : salons publics.
-- `GET /api/messages?room=general&after=0` : messages du salon (maximum 100 par requête).
-- `POST /api/messages` : message {room,text}, 2 000 caractères maximum.
-
-## Périmètre et limites
-
-Le transport des messages utilise **polling HTTP toutes les trois secondes**, pas des WebSockets. C'est une première version multiutilisateur persistante, pas encore un système temps réel haute capacité.
-
-Avant d'ouvrir la création de comptes au public : ajouter un contrôle anti-abus distribué, quotas d'inscription, modération, récupération de compte, rétention/purge, protection contre les tentatives de connexion et supervision. Le contrôle d'une requête par seconde sur les messages ne remplace pas un rate limiter robuste. Les pages Cloudflare ne deviendront fonctionnelles qu'après la création de la D1 et son binding ; la simple présence du code ne constitue pas une validation de déploiement.
-
-## Pagination robuste
-
-L'API de messages utilise maintenant un curseur composé de l'horodatage `after` et de l'identifiant `afterId`, avec tri déterministe `(created_at,id)`. Cela permet d'éviter les pertes de messages partageant le même milliseconde. La page `online.html` emploie le même curseur et recharge correctement un salon choisi pendant une requête en cours. Le transport reste du polling HTTP, pas WebSocket.
+Les comptes standards sont fournis par WarLike Server. Les adresses de chat ne sont pas des adresses e-mail Internet. Les échanges de deux comptes sur le déploiement Cloudflare doivent encore être vérifiés.
