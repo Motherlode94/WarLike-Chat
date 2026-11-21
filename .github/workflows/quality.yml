@@ -13,7 +13,11 @@ jobs:
         with:
           node-version: '22'
       - name: Validate JS syntax
-        run: node --check app.js
+        run: |
+          node --check app.js
+          node --check 'functions/api/[[path]].js'
+          node --check call-media.js
+          node --check calls.js
       - name: Validate application DOM contracts
         run: node tests/smoke.mjs
       - name: Install Chromium
