@@ -58,7 +58,7 @@ export async function onRequest({request,env}){
   }
   if(path==='members'&&method==='GET'){
    await db.prepare('INSERT INTO chat_presence(user_id,username,seen_at) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET username=excluded.username,seen_at=excluded.seen_at').bind(user.id,String(user.username).slice(0,80),Date.now()).run();
-   const r=await db.prepare('SELECT p.user_id AS id,p.username,p.seen_at,COALESCE(a.status,'available') AS status, EXISTS(SELECT 1 FROM chat_calls c WHERE c.state='accepted' AND c.updated>? AND (c.caller=p.user_id OR c.callee=p.user_id)) AS in_call FROM chat_presence p LEFT JOIN chat_availability a ON a.user_id=p.user_id WHERE p.user_id<>? ORDER BY p.username LIMIT 200').bind(Date.now()-3600000,user.id).all();return json({members:r.results.map(m=>({id:m.id,username:m.username,online:Date.now()-m.seen_at<45000,status:Date.now()-m.seen_at>=45000?'offline':m.in_call?'in_call':m.status}))});
+   const r=await db.prepare("SELECT p.user_id AS id,p.username,p.seen_at,COALESCE(a.status,'available') AS status, EXISTS(SELECT 1 FROM chat_calls c WHERE c.state='accepted' AND c.updated>? AND (c.caller=p.user_id OR c.callee=p.user_id)) AS in_call FROM chat_presence p LEFT JOIN chat_availability a ON a.user_id=p.user_id WHERE p.user_id<>? ORDER BY p.username LIMIT 200").bind(Date.now()-3600000,user.id).all();return json({members:r.results.map(m=>({id:m.id,username:m.username,online:Date.now()-m.seen_at<45000,status:Date.now()-m.seen_at>=45000?'offline':m.in_call?'in_call':m.status}))});
   }
   if(path==='direct'&&method==='POST'){
    const b=await readBody(request);if(typeof b.member!=='string'||b.member===user.id)return json({error:'Membre invalide.'},400);
