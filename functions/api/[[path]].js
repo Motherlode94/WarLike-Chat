@@ -26,6 +26,24 @@ export async function onRequest({request,env}){
   if(path==='me'&&method==='GET')return json({user});
   if(!user)return json({error:'Connexion WarLike nécessaire.'},401);
   const canRead=async room=>!!await db.prepare('SELECT r.id FROM chat_rooms r LEFT JOIN chat_direct d ON d.room_id=r.id WHERE r.id=? AND (d.room_id IS NULL OR d.member_a=? OR d.member_b=?)').bind(room,user.id,user.id).first();
+  if(path==='calls'&&method==='GET'){
+   const r=await db.prepare("SELECT * FROM chat_calls WHERE (caller=? OR callee=?) AND updated>? ORDER BY updated DESC LIMIT 30").bind(user.id,user.id,Date.now()-3600000).all();return json({calls:r.results});
+  }
+  if(path==='calls'&&method==='POST'){
+   const b=await readBody(request),now=Date.now();
+   if(b.action==='invite'){
+    if(typeof b.member!=='string'||b.member===user.id||!['audio','video'].includes(b.kind)||typeof b.offer!=='string'||b.offer.length>6000)return json({error:'Invitation invalide.'},400);
+    if(!await db.prepare('SELECT user_id FROM chat_presence WHERE user_id=?').bind(b.member).first())return json({error:'Membre inconnu.'},404);
+    const id=crypto.randomUUID();const result=await db.prepare("INSERT INTO chat_calls(id,caller,callee,kind,state,updated,offer) SELECT ?,?,?,?,'ringing',?,? WHERE NOT EXISTS (SELECT 1 FROM chat_calls WHERE caller=? AND updated>?)").bind(id,user.id,b.member,b.kind,now,b.offer,user.id,now-3000).run();if(!result.meta.changes)return json({error:'Patiente avant de rappeler.'},429);return json({id},201);
+   }
+   if(typeof b.id!=='string')return json({error:'Appel invalide.'},400);
+   let result;
+   if(b.action==='accept'&&typeof b.answer==='string'&&b.answer.length<=6000)result=await db.prepare("UPDATE chat_calls SET state='accepted',answer=?,updated=? WHERE id=? AND callee=? AND state='ringing' AND updated>?").bind(b.answer,now,b.id,user.id,now-120000).run();
+   else if(b.action==='decline')result=await db.prepare("UPDATE chat_calls SET state='declined',updated=? WHERE id=? AND callee=? AND state='ringing'").bind(now,b.id,user.id).run();
+   else if(b.action==='end')result=await db.prepare("UPDATE chat_calls SET state='ended',updated=? WHERE id=? AND (caller=? OR callee=?) AND state IN ('ringing','accepted')").bind(now,b.id,user.id,user.id).run();
+   else return json({error:'Action invalide.'},400);
+   if(!result.meta.changes)return json({error:'Appel inaccessible ou expiré.'},404);return json({ok:true});
+  }
   if(path==='members'&&method==='GET'){
    await db.prepare('INSERT INTO chat_presence(user_id,username,seen_at) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET username=excluded.username,seen_at=excluded.seen_at').bind(user.id,String(user.username).slice(0,80),Date.now()).run();
    const r=await db.prepare('SELECT user_id AS id,username,seen_at FROM chat_presence WHERE user_id<>? ORDER BY username LIMIT 200').bind(user.id).all();return json({members:r.results.map(m=>({id:m.id,username:m.username,online:Date.now()-m.seen_at<45000}))});
