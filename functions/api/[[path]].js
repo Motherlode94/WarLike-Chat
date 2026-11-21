@@ -26,8 +26,11 @@ export async function onRequest({request,env}){
   if(path==='me'&&method==='GET')return json({user});
   if(!user)return json({error:'Connexion WarLike nécessaire.'},401);
   const canRead=async room=>!!await db.prepare('SELECT r.id FROM chat_rooms r LEFT JOIN chat_direct d ON d.room_id=r.id WHERE r.id=? AND (d.room_id IS NULL OR d.member_a=? OR d.member_b=?)').bind(room,user.id,user.id).first();
+  if(path==='call-history'&&method==='GET'){
+   const now=Date.now();const r=await db.prepare("SELECT c.id,c.caller,c.callee,c.kind,CASE WHEN c.state='ringing' AND c.updated<=? THEN 'missed' ELSE c.state END AS state,c.updated,p.username AS peer_name FROM chat_calls c LEFT JOIN chat_presence p ON p.user_id=CASE WHEN c.caller=? THEN c.callee ELSE c.caller END WHERE c.caller=? OR c.callee=? ORDER BY c.updated DESC LIMIT 100").bind(now-120000,user.id,user.id,user.id).all();return json({calls:r.results});
+  }
   if(path==='calls'&&method==='GET'){
-   const r=await db.prepare("SELECT * FROM chat_calls WHERE (caller=? OR callee=?) AND updated>? ORDER BY updated DESC LIMIT 30").bind(user.id,user.id,Date.now()-34800000).all();return json({calls:r.results});
+   const r=await db.prepare("SELECT * FROM chat_calls WHERE (caller=? OR callee=?) AND updated>? ORDER BY updated DESC LIMIT 30").bind(user.id,user.id,Date.now()-3600000).all();return json({calls:r.results});
   }
   if(path==='calls'&&method==='POST'){
    const b=await readBody(request),now=Date.now();
