@@ -25,21 +25,34 @@ export async function onRequest({request,env}){
   const user=await current(request,env);
   if(path==='me'&&method==='GET')return json({user});
   if(!user)return json({error:'Connexion WarLike nécessaire.'},401);
-  if(path==='rooms'&&method==='GET'){const r=await db.prepare('SELECT id,name,description FROM chat_rooms ORDER BY rowid').all();return json({rooms:r.results});}
+  const canRead=async room=>!!await db.prepare('SELECT r.id FROM chat_rooms r LEFT JOIN chat_direct d ON d.room_id=r.id WHERE r.id=? AND (d.room_id IS NULL OR d.member_a=? OR d.member_b=?)').bind(room,user.id,user.id).first();
+  if(path==='members'&&method==='GET'){
+   await db.prepare('INSERT INTO chat_presence(user_id,username,seen_at) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET username=excluded.username,seen_at=excluded.seen_at').bind(user.id,String(user.username).slice(0,80),Date.now()).run();
+   const r=await db.prepare('SELECT user_id AS id,username,seen_at FROM chat_presence WHERE user_id<>? ORDER BY username LIMIT 200').bind(user.id).all();return json({members:r.results.map(m=>({id:m.id,username:m.username,online:Date.now()-m.seen_at<45000}))});
+  }
+  if(path==='direct'&&method==='POST'){
+   const b=await readBody(request);if(typeof b.member!=='string'||b.member===user.id)return json({error:'Membre invalide.'},400);
+   const peer=await db.prepare('SELECT user_id FROM chat_presence WHERE user_id=?').bind(b.member).first();if(!peer)return json({error:'Membre introuvable.'},404);
+   const [a,z]=[String(user.id),b.member].sort();const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify([a,z])));const room='dm-'+Array.from(new Uint8Array(hash).slice(0,20),x=>x.toString(16).padStart(2,'0')).join('');
+   await db.prepare('INSERT OR IGNORE INTO chat_direct(room_id,member_a,member_b) VALUES (?,?,?)').bind(room,a,z).run();
+   await db.prepare("INSERT OR IGNORE INTO chat_rooms(id,name,description) VALUES (?,'Privé','Conversation privée')").bind(room).run();return json({room});
+  }
+  if(path==='rooms'&&method==='GET'){const r=await db.prepare("SELECT r.id,COALESCE(p.username,r.name) AS name,r.description FROM chat_rooms r LEFT JOIN chat_direct d ON d.room_id=r.id LEFT JOIN chat_presence p ON p.user_id=CASE WHEN d.member_a=? THEN d.member_b ELSE d.member_a END WHERE d.room_id IS NULL OR d.member_a=? OR d.member_b=? ORDER BY r.rowid").bind(user.id,user.id,user.id).all();return json({rooms:r.results});}
   if(path==='messages'&&method==='GET'){
    const room=url.searchParams.get('room')||'general',after=Number(url.searchParams.get('after')||0),afterId=url.searchParams.get('afterId')||'';
    if(!/^[a-z0-9-]{1,48}$/.test(room)||!Number.isSafeInteger(after)||after<0||(afterId&&!/^[a-zA-Z0-9-]{1,64}$/.test(afterId)))return json({error:'Paramètres invalides.'},400);
+   if(!await canRead(room))return json({error:'Salon inaccessible.'},404);
    const r=await db.prepare('SELECT id,room_id,text,created_at,username FROM chat_messages WHERE room_id=? AND (created_at>? OR (created_at=? AND id>?)) AND deleted_at IS NULL ORDER BY created_at,id LIMIT 100').bind(room,after,after,afterId).all();return json({messages:r.results});
   }
   if(path==='messages'&&method==='POST'){
    const b=await readBody(request),room=String(b.room||''),message=String(b.text||'').trim();if(!/^[a-z0-9-]{1,48}$/.test(room)||!message||message.length>2000)return json({error:'Message invalide (maximum 2 000 caractères).'},400);
-   if(!await db.prepare('SELECT id FROM chat_rooms WHERE id=?').bind(room).first())return json({error:'Salon introuvable.'},404);
+   if(!await canRead(room))return json({error:'Salon introuvable.'},404);
    const now=Date.now(),id=crypto.randomUUID();const result=await db.prepare('INSERT INTO chat_messages(id,room_id,user_id,username,text,created_at) SELECT ?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM chat_messages WHERE user_id=? AND created_at>?)').bind(id,room,user.id,String(user.username).slice(0,80),message,now,user.id,now-1000).run();
    if(!result.meta.changes)return json({error:'Un message par seconde maximum.'},429);return json({ok:true},201);
   }
   if(path==='moderate'&&method==='POST'){
    if(user.role!=='owner')return json({error:'Réservé au propriétaire.'},403);const b=await readBody(request);if(typeof b.id!=='string'||!/^[a-zA-Z0-9-]{1,64}$/.test(b.id))return json({error:'Message invalide.'},400);
-   const now=Date.now();const r=await db.prepare('UPDATE chat_messages SET deleted_at=?,deleted_by=? WHERE id=? AND deleted_at IS NULL').bind(now,user.id,b.id).run();if(!r.meta.changes)return json({error:'Message introuvable.'},404);return json({ok:true});
+   const now=Date.now();const r=await db.prepare('UPDATE chat_messages SET deleted_at=?,deleted_by=? WHERE id=? AND deleted_at IS NULL AND room_id NOT IN (SELECT room_id FROM chat_direct)').bind(now,user.id,b.id).run();if(!r.meta.changes)return json({error:'Message introuvable.'},404);return json({ok:true});
   }
   return json({error:'Route introuvable.'},404);
  }catch(e){if(e instanceof SyntaxError)return json({error:'JSON invalide.'},400);if(e.message==='size')return json({error:'Requête trop volumineuse.'},413);if(e.message==='format')return json({error:'Requête invalide.'},400);return json({error:'Service temporairement indisponible.'},503);}
