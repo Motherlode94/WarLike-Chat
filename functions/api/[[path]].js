@@ -26,6 +26,13 @@ export async function onRequest({request,env}){
   if(path==='me'&&method==='GET')return json({user});
   if(!user)return json({error:'Connexion WarLike nécessaire.'},401);
   const canRead=async room=>!!await db.prepare('SELECT r.id FROM chat_rooms r LEFT JOIN chat_direct d ON d.room_id=r.id WHERE r.id=? AND (d.room_id IS NULL OR d.member_a=? OR d.member_b=?)').bind(room,user.id,user.id).first();
+  if(path==='availability'&&method==='POST'){
+   const b=await readBody(request);if(!['available','busy','away','dnd','meeting'].includes(b.status))return json({error:'Statut invalide.'},400);
+   await db.prepare('INSERT INTO chat_availability(user_id,status) VALUES (?,?) ON CONFLICT(user_id) DO UPDATE SET status=excluded.status').bind(user.id,b.status).run();return json({ok:true});
+  }
+  if(path==='availability'&&method==='GET'){
+   const own=await db.prepare('SELECT status FROM chat_availability WHERE user_id=?').bind(user.id).first();return json({status:own?.status||'available'});
+  }
   if(path==='call-history'&&method==='GET'){
    const now=Date.now();const r=await db.prepare("SELECT c.id,c.caller,c.callee,c.kind,CASE WHEN c.state='ringing' AND c.updated<=? THEN 'missed' ELSE c.state END AS state,c.updated,p.username AS peer_name FROM chat_calls c LEFT JOIN chat_presence p ON p.user_id=CASE WHEN c.caller=? THEN c.callee ELSE c.caller END WHERE c.caller=? OR c.callee=? ORDER BY c.updated DESC LIMIT 100").bind(now-120000,user.id,user.id,user.id).all();return json({calls:r.results});
   }
@@ -37,7 +44,9 @@ export async function onRequest({request,env}){
    if(b.action==='invite'){
     if(typeof b.member!=='string'||b.member===user.id||!['audio','video'].includes(b.kind)||typeof b.offer!=='string'||b.offer.length>48000)return json({error:'Invitation invalide.'},400);
     if(!await db.prepare('SELECT user_id FROM chat_presence WHERE user_id=?').bind(b.member).first())return json({error:'Membre inconnu.'},404);
-    const id=crypto.randomUUID();const result=await db.prepare("INSERT INTO chat_calls(id,caller,callee,kind,state,updated,offer) SELECT ?,?,?,?,'ringing',?,? WHERE NOT EXISTS (SELECT 1 FROM chat_calls WHERE caller=? AND updated>?)").bind(id,user.id,b.member,b.kind,now,b.offer,user.id,now-3000).run();if(!result.meta.changes)return json({error:'Patiente avant de rappeler.'},429);return json({id},201);
+    const preference=await db.prepare('SELECT status FROM chat_availability WHERE user_id=?').bind(b.member).first();
+    if(preference?.status==='dnd')return json({error:'Le correspondant ne souhaite pas être dérangé.'},409);
+    const id=crypto.randomUUID();const result=await db.prepare("INSERT INTO chat_calls(id,caller,callee,kind,state,updated,offer) SELECT ?,?,?,?,'ringing',?,? WHERE NOT EXISTS (SELECT 1 FROM chat_calls WHERE (caller=? AND updated>?) OR (state='accepted' AND updated>? AND (caller IN (?,?) OR callee IN (?,?))) OR (state='ringing' AND updated>? AND (caller IN (?,?) OR callee IN (?,?))))").bind(id,user.id,b.member,b.kind,now,b.offer,user.id,now-3000,now-3600000,user.id,b.member,user.id,b.member,now-120000,user.id,b.member,user.id,b.member).run();if(!result.meta.changes)return json({error:'Correspondant occupé ou appel déjà en cours.'},429);return json({id},201);
    }
    if(typeof b.id!=='string')return json({error:'Appel invalide.'},400);
    let result;
@@ -49,7 +58,7 @@ export async function onRequest({request,env}){
   }
   if(path==='members'&&method==='GET'){
    await db.prepare('INSERT INTO chat_presence(user_id,username,seen_at) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET username=excluded.username,seen_at=excluded.seen_at').bind(user.id,String(user.username).slice(0,80),Date.now()).run();
-   const r=await db.prepare('SELECT user_id AS id,username,seen_at FROM chat_presence WHERE user_id<>? ORDER BY username LIMIT 200').bind(user.id).all();return json({members:r.results.map(m=>({id:m.id,username:m.username,online:Date.now()-m.seen_at<45000}))});
+   const r=await db.prepare('SELECT p.user_id AS id,p.username,p.seen_at,COALESCE(a.status,'available') AS status, EXISTS(SELECT 1 FROM chat_calls c WHERE c.state='accepted' AND c.updated>? AND (c.caller=p.user_id OR c.callee=p.user_id)) AS in_call FROM chat_presence p LEFT JOIN chat_availability a ON a.user_id=p.user_id WHERE p.user_id<>? ORDER BY p.username LIMIT 200').bind(Date.now()-3600000,user.id).all();return json({members:r.results.map(m=>({id:m.id,username:m.username,online:Date.now()-m.seen_at<45000,status:Date.now()-m.seen_at>=45000?'offline':m.in_call?'in_call':m.status}))});
   }
   if(path==='direct'&&method==='POST'){
    const b=await readBody(request);if(typeof b.member!=='string'||b.member===user.id)return json({error:'Membre invalide.'},400);
