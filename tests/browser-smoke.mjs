@@ -21,6 +21,15 @@ try{
  await page.locator('#createRoom').click();
  assert.equal(await page.locator('#roomTitle').innerText(),'# Studio QA');
  assert.equal(await page.locator('#rooms button').count(),5);
+ await page.route('**/api/me',route=>route.fulfill({json:{user:null}}));
+ await page.route('**/api/login',route=>{assert.equal(route.request().method(),'POST');return route.fulfill({status:401,json:{error:'Identifiants invalides'}});});
+ await page.goto('http://127.0.0.1:8765/');
+ await page.locator('#loginSubmit:enabled').waitFor();
+ await page.locator('[name=username]').fill('test');
+ await page.locator('[name=password]').fill('test-password');
+ await page.locator('#loginSubmit').click();
+ await page.getByText('Identifiants invalides',{exact:true}).waitFor();
+ assert.ok(!page.url().includes('password'));
  assert.deepEqual(errors,[]);
  console.log('PASS: Chat messages, persistence, search and room creation');
 }finally{await browser.close();}
