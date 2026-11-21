@@ -38,6 +38,12 @@ export async function onRequest({request,env}){
    await db.prepare("INSERT OR IGNORE INTO chat_rooms(id,name,description) VALUES (?,'Privé','Conversation privée')").bind(room).run();return json({room});
   }
   if(path==='rooms'&&method==='GET'){const r=await db.prepare("SELECT r.id,COALESCE(p.username,r.name) AS name,r.description FROM chat_rooms r LEFT JOIN chat_direct d ON d.room_id=r.id LEFT JOIN chat_presence p ON p.user_id=CASE WHEN d.member_a=? THEN d.member_b ELSE d.member_a END WHERE d.room_id IS NULL OR d.member_a=? OR d.member_b=? ORDER BY r.rowid").bind(user.id,user.id,user.id).all();return json({rooms:r.results});}
+  if(path==='search'&&method==='GET'){
+   const room=url.searchParams.get('room')||'general',q=(url.searchParams.get('q')||'').trim();
+   if(q.length<2||q.length>100)return json({error:'Recherche : 2 à 100 caractères.'},400);
+   if(!await canRead(room))return json({error:'Salon inaccessible.'},404);
+   const r=await db.prepare('SELECT id,username,text,created_at FROM chat_messages WHERE room_id=? AND deleted_at IS NULL AND instr(lower(text),lower(?))>0 ORDER BY created_at DESC,id DESC LIMIT 50').bind(room,q).all();return json({messages:r.results});
+  }
   if(path==='messages'&&method==='GET'){
    const room=url.searchParams.get('room')||'general',after=Number(url.searchParams.get('after')||0),afterId=url.searchParams.get('afterId')||'';
    if(!/^[a-z0-9-]{1,48}$/.test(room)||!Number.isSafeInteger(after)||after<0||(afterId&&!/^[a-zA-Z0-9-]{1,64}$/.test(afterId)))return json({error:'Paramètres invalides.'},400);
