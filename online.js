@@ -23,3 +23,35 @@ const accountClear=clearSession;function showRecordings(open){$('recordingsPanel
 let sharedGeneration=0;const previousSharedReset=clearSession;clearSession=function(){sharedGeneration++;$('sharedContactList').replaceChildren();$('sharedContactForm').reset();$('sharedSearch').value='';$('sharedContactStatus').textContent='';$('sharedContacts').open=false;previousSharedReset();};async function loadSharedContacts(){const e=++sharedGeneration;if(!(connected))return;try{const d=await api('contacts');if(e!==sharedGeneration||!(connected))return;$('sharedContactList').replaceChildren(...d.contacts.filter(c=>(c.name+' '+c.number).toLocaleLowerCase().includes($('sharedSearch').value.trim().toLocaleLowerCase())).sort((a,b)=>Number(!!b.favorite)-Number(!!a.favorite)||a.name.localeCompare(b.name,'fr')).map(c=>{const li=document.createElement('li');li.textContent=c.name+' · '+c.number+' ';const btn=document.createElement('button');btn.type='button';btn.textContent='Supprimer';btn.onclick=async()=>{if(e!==sharedGeneration||!confirm('Supprimer ce contact partagé ?'))return;try{await post('contact-delete',{number:c.number});if(e===sharedGeneration)await loadSharedContacts();}catch(err){if(e===sharedGeneration)$('sharedContactStatus').textContent=err.message;}};li.append(btn);for(const flag of ['favorite','blocked']){const control=document.createElement('button');control.type='button';control.textContent=flag==='favorite'?(c.favorite?'Retirer des favoris':'Favori'):(c.blocked?'Débloquer':'Bloquer');control.onclick=async()=>{if(e!==sharedGeneration)return;if(flag==='blocked'&&!confirm(control.textContent+' ce contact ?'))return;try{await post('contact-flags',{number:c.number,favorite:!!c.favorite,blocked:!!c.blocked,[flag]:!c[flag]});if(e===sharedGeneration)await loadSharedContacts();}catch(err){if(e===sharedGeneration)$('sharedContactStatus').textContent=err.message;}};li.append(control);}return li;}));$('sharedContactStatus').textContent=d.contacts.length+' contacts';}catch(err){if(e===sharedGeneration)$('sharedContactStatus').textContent=err.message;}}$('sharedContactRefresh').onclick=loadSharedContacts;$('sharedContacts').addEventListener('toggle',()=>{if($('sharedContacts').open)loadSharedContacts();});$('sharedContactForm').onsubmit=async ev=>{ev.preventDefault();if(!(connected))return;const e=sharedGeneration,form=ev.currentTarget;try{await post('contact-save',Object.fromEntries(new FormData(form)));if(e===sharedGeneration){form.reset();await loadSharedContacts();}}catch(err){if(e===sharedGeneration)$('sharedContactStatus').textContent=err.message;}};
 
 $('sharedSearch').addEventListener('change',loadSharedContacts);const sharedTimer=setInterval(()=>{if((connected)&&$('sharedContacts').open&&!document.hidden&&!$('sharedContacts').contains(document.activeElement))loadSharedContacts();},15000);window.addEventListener('pagehide',()=>clearInterval(sharedTimer));
+
+let pushBusy=false,pushRenew=null;
+function stopPushRenew(){clearInterval(pushRenew);pushRenew=null;}
+async function revokeChatPush(){
+ stopPushRenew();
+ if(!('serviceWorker' in navigator))return;
+ const reg=await navigator.serviceWorker.getRegistration('/');
+ const sub=await reg?.pushManager.getSubscription();
+ if(sub)await sub.unsubscribe();
+ if(reg)for(const n of await reg.getNotifications())n.close();
+}
+async function registerChatPush(sub,e){if(!connected||e!==epoch)throw Error('Session modifiée');await post('push-subscribe',{app:'chat',subscription:sub.toJSON()});if(!connected||e!==epoch){await sub.unsubscribe();throw Error('Session modifiée');}}
+$('pushToggle').onclick=async()=>{
+ if(pushBusy||!connected)return;pushBusy=true;const e=epoch,button=$('pushToggle');button.disabled=true;
+ try{
+ if(!('Notification' in window)||!('serviceWorker' in navigator)||!('PushManager' in window))throw Error('Web Push indisponible');
+ const old=await navigator.serviceWorker.getRegistration('/');
+ const existing=await old?.pushManager.getSubscription();
+ if(existing){await revokeChatPush();button.textContent='Activer les notifications';$('pushStatus').textContent='Notifications désactivées sur cet appareil.';return;}
+ const permission=await Notification.requestPermission();if(permission!=='granted')throw Error('Permission non accordée');
+ const cfg=await api('push-config');if(!cfg.available||!cfg.publicKey)throw Error('Serveur Push non configuré');
+ const reg=await navigator.serviceWorker.register('/sw.js');await navigator.serviceWorker.ready;
+ if(!connected||e!==epoch)return;
+ const key=Uint8Array.from(atob(cfg.publicKey.replaceAll('-','+').replaceAll('_','/')),c=>c.charCodeAt(0));
+ const sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key});
+ try{await registerChatPush(sub,e);}catch(err){await sub.unsubscribe();throw err;}
+ button.textContent='Désactiver les notifications';$('pushStatus').textContent='Abonnement enregistré. Livraison serveur à confirmer.';
+ stopPushRenew();pushRenew=setInterval(()=>{if(connected&&e===epoch)registerChatPush(sub,e).catch(()=>{stopPushRenew();});},20*60*1000);
+ }catch(err){if(e===epoch)$('pushStatus').textContent=err.message;}finally{pushBusy=false;button.disabled=false;}
+};
+const previousPushClear=clearSession;clearSession=function(){stopPushRenew();$('pushToggle').textContent='Activer les notifications';$('pushStatus').textContent='';previousPushClear();};
+const previousPushLogout=$('logout').onclick;$('logout').onclick=async()=>{if(pushBusy)return;pushBusy=true;$('pushToggle').disabled=true;try{await revokeChatPush();await previousPushLogout();}catch(err){notice('Désactivation Push impossible : '+err.message);}finally{pushBusy=false;$('pushToggle').disabled=false;}};
