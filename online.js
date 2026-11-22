@@ -32,14 +32,16 @@ function schedulePushRenew(sub,e){stopPushRenew();pushRenew=setInterval(()=>{if(
 async function restoreChatPush(){if(pushBusy||!connected||!('serviceWorker' in navigator)||!('PushManager' in window))return;const e=epoch;pushBusy=true;try{const reg=await navigator.serviceWorker.getRegistration('/');const sub=await reg?.pushManager.getSubscription();if(!connected||e!==epoch)return;if(!sub){setPushOwner(null);return;}if(pushOwner()!==currentUser.id||Notification.permission!=='granted'){await revokeChatPush();return;}await registerChatPush(sub,e);$('pushToggle').textContent='Désactiver les notifications';$('pushStatus').textContent='Abonnement restauré. Livraison serveur à confirmer.';schedulePushRenew(sub,e);}catch(err){if(e===epoch)$('pushStatus').textContent=err.message;}finally{pushBusy=false;}}
 
 function stopPushRenew(){clearInterval(pushRenew);pushRenew=null;}
-async function revokeChatPush(){
+async function revokeChatPush(remote=false){
  stopPushRenew();
- if(!('serviceWorker' in navigator))return;
+ let failure; if(remote)try{await post('push-revoke-session',{app:'chat'});}catch(err){failure=err;}
+ if(!('serviceWorker' in navigator)){if(failure)throw failure;return;}
  const reg=await navigator.serviceWorker.getRegistration('/');
  const sub=await reg?.pushManager.getSubscription();
  if(sub)await sub.unsubscribe();
  setPushOwner(null);
  if(reg)for(const n of await reg.getNotifications())n.close();
+ if(failure)throw failure;
 }
 async function registerChatPush(sub,e){if(!connected||e!==epoch)throw Error('Session modifiée');await post('push-subscribe',{app:'chat',subscription:sub.toJSON()});if(!connected||e!==epoch){await sub.unsubscribe();throw Error('Session modifiée');}}
 $('pushToggle').onclick=async()=>{
@@ -48,7 +50,7 @@ $('pushToggle').onclick=async()=>{
  if(!('Notification' in window)||!('serviceWorker' in navigator)||!('PushManager' in window))throw Error('Web Push indisponible');
  const old=await navigator.serviceWorker.getRegistration('/');
  const existing=await old?.pushManager.getSubscription();
- if(existing){await revokeChatPush();button.textContent='Activer les notifications';$('pushStatus').textContent='Notifications désactivées sur cet appareil.';return;}
+ if(existing){await revokeChatPush(true);button.textContent='Activer les notifications';$('pushStatus').textContent='Notifications désactivées sur cet appareil.';return;}
  const permission=await Notification.requestPermission();if(permission!=='granted')throw Error('Permission non accordée');
  const cfg=await api('push-config');if(!cfg.available||!cfg.publicKey)throw Error('Serveur Push non configuré');
  const reg=await navigator.serviceWorker.register('/sw.js');await navigator.serviceWorker.ready;
