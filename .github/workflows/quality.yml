@@ -16,6 +16,8 @@ jobs:
         run: node --check app.js
       - name: Validate application DOM contracts
         run: node tests/smoke.mjs
+      - name: Certify Networks proxy
+        run: node --test tests/networks-proxy.test.mjs
       - name: Install Chromium
         run: |
           npm init -y
