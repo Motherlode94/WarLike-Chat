@@ -5,7 +5,7 @@ const setCookie=(token,age)=>`${COOKIE}=${token}; Path=/; HttpOnly; Secure; Same
 async function readBody(req){if(req.headers.get('content-type')?.split(';')[0]!=='application/json')throw new Error('format');if(Number(req.headers.get('content-length')||0)>8192)throw new Error('size');const reader=req.body?.getReader();if(!reader)throw new Error('format');const chunks=[];let size=0;for(;;){const {value,done}=await reader.read();if(done)break;size+=value.length;if(size>8192){await reader.cancel();throw new Error('size')}chunks.push(value)}const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length}return JSON.parse(new TextDecoder().decode(bytes));}
 async function server(req,env,path,{method='GET',token,body}={}){if(!env.WARLIKE_SERVER)throw new Error('server');const headers={origin:SERVER};const ip=req.headers.get('cf-connecting-ip');if(ip)headers['cf-connecting-ip']=ip;if(token)headers.cookie='__Host-warlike_session='+token;if(body)headers['content-type']='application/json';return env.WARLIKE_SERVER.fetch(new Request(SERVER+path,{method,headers,body,redirect:'manual'}));}
 async function current(req,env){const token=readCookie(req);if(!token)return null;const r=await server(req,env,'/api/warlike-auth/session',{token});if(r.status===401||r.status===403)return null;if(!r.ok)throw new Error('server');const x=await r.json();return x.user&&!x.mustChange?{id:x.user.id,username:x.user.name,role:x.user.role}:null;}
-export async function onRequest({request,env}){
+export async function onRequest({request,env,waitUntil}){
  const db=env.CHAT_DB;if(!db||!env.WARLIKE_SERVER)return json({error:'Service Chat en cours de configuration.'},503);
  const url=new URL(request.url),path=url.pathname.replace(/^\/api\/?/,'').replace(/\/$/,''),method=request.method;
  if(!['GET','POST'].includes(method))return json({error:'Méthode refusée.'},405);
@@ -63,13 +63,20 @@ export async function onRequest({request,env}){
   if(path==='messages'&&method==='POST'){
    const b=await readBody(request),room=String(b.room||''),message=String(b.text||'').trim();if(!/^[a-z0-9-]{1,48}$/.test(room)||!message||message.length>2000)return json({error:'Message invalide (maximum 2 000 caractères).'},400);
    if(!await canRead(room))return json({error:'Salon introuvable.'},404);
+   let pushPeer=null;
    if(room.startsWith('dm-')){
     const direct=await db.prepare('SELECT member_a,member_b FROM chat_direct WHERE room_id=? AND (member_a=? OR member_b=?)').bind(room,user.id,user.id).first();
     if(!direct)return json({error:'Salon introuvable.'},404);
-    if(!await chatAllowed(direct.member_a===user.id?direct.member_b:direct.member_a))return json({error:'Envoi privé non autorisé.'},403);
+    pushPeer=direct.member_a===user.id?direct.member_b:direct.member_a;
+    if(!await chatAllowed(pushPeer))return json({error:'Envoi privé non autorisé.'},403);
    }
    const now=Date.now(),id=crypto.randomUUID();const result=await db.prepare('INSERT INTO chat_messages(id,room_id,user_id,username,text,created_at) SELECT ?,?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM chat_messages WHERE user_id=? AND created_at>?)').bind(id,room,user.id,String(user.username).slice(0,80),message,now,user.id,now-1000).run();
-   if(!result.meta.changes)return json({error:'Un message par seconde maximum.'},429);return json({ok:true},201);
+   if(!result.meta.changes)return json({error:'Un message par seconde maximum.'},429);
+   if(pushPeer&&env.CHAT_PUSH_DELIVERY&&typeof waitUntil==='function'){
+    const task=Promise.resolve().then(()=>env.CHAT_PUSH_DELIVERY.notifyPrivateMessage(user.id,pushPeer)).catch(()=>false);
+    try{waitUntil(task);}catch{}
+   }
+   return json({ok:true},201);
   }
   if(path==='moderate'&&method==='POST'){
    if(user.role!=='owner')return json({error:'Réservé au propriétaire.'},403);const b=await readBody(request);if(typeof b.id!=='string'||!/^[a-zA-Z0-9-]{1,64}$/.test(b.id))return json({error:'Message invalide.'},400);
