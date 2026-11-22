@@ -21,10 +21,11 @@ export async function onRequest({request,env}){
    if(data.mustChange){await server(request,env,'/api/warlike-auth/logout',{method:'POST',token:match[1]}).catch(()=>{});return json({error:'Modifie d’abord tes identifiants temporaires sur WarLike Server.'},403)}
    return json({ok:true},200,{'set-cookie':setCookie(match[1],28800)});
   }
-  if(path==='logout'&&method==='POST'){const token=readCookie(request);if(token)await server(request,env,'/api/warlike-auth/logout',{method:'POST',token}).catch(()=>{});return json({ok:true},200,{'set-cookie':setCookie('',0)});}
+  if(path==='logout'&&method==='POST'){const token=readCookie(request);if(token){try{if(env.NETWORKS){const origin='https://warlike-networks.pages.dev';await env.NETWORKS.fetch(new Request(origin+'/api/push-revoke-session',{method:'POST',headers:{origin,cookie:'__Host-warlike_networks='+token,'content-type':'application/json'},body:JSON.stringify({app:'chat'}),redirect:'manual'}));}}catch{}finally{await server(request,env,'/api/warlike-auth/logout',{method:'POST',token}).catch(()=>{});}}return json({ok:true},200,{'set-cookie':setCookie('',0)});}
   const user=await current(request,env);
   if(path==='me'&&method==='GET')return json({user});
   if(!user)return json({error:'Connexion WarLike nécessaire.'},401);
+  if(path==='push-revoke-session'&&method==='POST'){if(!env.NETWORKS)return json({error:'Networks non configuré.'},503);const origin='https://warlike-networks.pages.dev';const r=await env.NETWORKS.fetch(new Request(origin+'/api/push-revoke-session',{method:'POST',headers:{origin,cookie:'__Host-warlike_networks='+readCookie(request),'content-type':'application/json'},body:JSON.stringify({app:'chat'}),redirect:'manual'}));return json(await r.json(),r.status);}
   if((['meetings','contacts','push-config','push-subscriptions'].includes(path)&&method==='GET')||(['meeting-create','meeting-invite','meeting-close','contact-save','contact-delete','contact-flags','push-subscribe','push-unsubscribe'].includes(path)&&method==='POST')){if(!env.NETWORKS)return json({error:'Networks non configuré.'},503);const origin='https://warlike-networks.pages.dev';const body=method==='POST'?JSON.stringify(await readBody(request)):undefined;const r=await env.NETWORKS.fetch(new Request(origin+'/api/'+path,{method,headers:{origin,cookie:'__Host-warlike_networks='+readCookie(request),'content-type':'application/json'},body,redirect:'manual'}));return json(await r.json(),r.status);}
   async function chatAllowed(peer){
    if(!env.NETWORKS)throw Error('policy unavailable');
