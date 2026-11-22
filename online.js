@@ -25,6 +25,12 @@ let sharedGeneration=0;const previousSharedReset=clearSession;clearSession=funct
 $('sharedSearch').addEventListener('change',loadSharedContacts);const sharedTimer=setInterval(()=>{if((connected)&&$('sharedContacts').open&&!document.hidden&&!$('sharedContacts').contains(document.activeElement))loadSharedContacts();},15000);window.addEventListener('pagehide',()=>clearInterval(sharedTimer));
 
 let pushBusy=false,pushRenew=null;
+const pushOwnerKey='warlike-chat-push-owner';
+function pushOwner(){try{return localStorage.getItem(pushOwnerKey);}catch{return null;}}
+function setPushOwner(id){try{if(id)localStorage.setItem(pushOwnerKey,id);else localStorage.removeItem(pushOwnerKey);}catch{}}
+function schedulePushRenew(sub,e){stopPushRenew();pushRenew=setInterval(()=>{if(connected&&e===epoch)registerChatPush(sub,e).catch(err=>{stopPushRenew();if(e===epoch)$('pushStatus').textContent='Renouvellement impossible : '+err.message;});},20*60*1000);}
+async function restoreChatPush(){if(pushBusy||!connected||!('serviceWorker' in navigator)||!('PushManager' in window))return;const e=epoch;pushBusy=true;try{const reg=await navigator.serviceWorker.getRegistration('/');const sub=await reg?.pushManager.getSubscription();if(!connected||e!==epoch)return;if(!sub){setPushOwner(null);return;}if(pushOwner()!==currentUser.id||Notification.permission!=='granted'){await revokeChatPush();return;}await registerChatPush(sub,e);$('pushToggle').textContent='Désactiver les notifications';$('pushStatus').textContent='Abonnement restauré. Livraison serveur à confirmer.';schedulePushRenew(sub,e);}catch(err){if(e===epoch)$('pushStatus').textContent=err.message;}finally{pushBusy=false;}}
+
 function stopPushRenew(){clearInterval(pushRenew);pushRenew=null;}
 async function revokeChatPush(){
  stopPushRenew();
@@ -32,6 +38,7 @@ async function revokeChatPush(){
  const reg=await navigator.serviceWorker.getRegistration('/');
  const sub=await reg?.pushManager.getSubscription();
  if(sub)await sub.unsubscribe();
+ setPushOwner(null);
  if(reg)for(const n of await reg.getNotifications())n.close();
 }
 async function registerChatPush(sub,e){if(!connected||e!==epoch)throw Error('Session modifiée');await post('push-subscribe',{app:'chat',subscription:sub.toJSON()});if(!connected||e!==epoch){await sub.unsubscribe();throw Error('Session modifiée');}}
@@ -49,9 +56,13 @@ $('pushToggle').onclick=async()=>{
  const key=Uint8Array.from(atob(cfg.publicKey.replaceAll('-','+').replaceAll('_','/')),c=>c.charCodeAt(0));
  const sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key});
  try{await registerChatPush(sub,e);}catch(err){await sub.unsubscribe();throw err;}
- button.textContent='Désactiver les notifications';$('pushStatus').textContent='Abonnement enregistré. Livraison serveur à confirmer.';
- stopPushRenew();pushRenew=setInterval(()=>{if(connected&&e===epoch)registerChatPush(sub,e).catch(()=>{stopPushRenew();});},20*60*1000);
+ setPushOwner(currentUser.id);button.textContent='Désactiver les notifications';$('pushStatus').textContent='Abonnement enregistré. Livraison serveur à confirmer.';
+ schedulePushRenew(sub,e);
  }catch(err){if(e===epoch)$('pushStatus').textContent=err.message;}finally{pushBusy=false;button.disabled=false;}
 };
 const previousPushClear=clearSession;clearSession=function(){stopPushRenew();$('pushToggle').textContent='Activer les notifications';$('pushStatus').textContent='';previousPushClear();};
-const previousPushLogout=$('logout').onclick;$('logout').onclick=async()=>{if(pushBusy)return;pushBusy=true;$('pushToggle').disabled=true;try{await revokeChatPush();await previousPushLogout();}catch(err){notice('Désactivation Push impossible : '+err.message);}finally{pushBusy=false;$('pushToggle').disabled=false;}};
+const previousPushLogout=$('logout').onclick;$('logout').onclick=async()=>{if(pushBusy)return;pushBusy=true;$('pushToggle').disabled=true;try{try{await revokeChatPush();}finally{await previousPushLogout();}}catch(err){notice('Désactivation Push impossible : '+err.message);}finally{pushBusy=false;$('pushToggle').disabled=false;}};
+
+const previousPushSession=session;session=async function(){await previousPushSession();if(connected)await restoreChatPush();};
+// Initial session starts before this module section; restore once it is ready.
+let pushInitialRestored=false;const pushBootstrap=setInterval(()=>{if(connected&&!pushInitialRestored){pushInitialRestored=true;clearInterval(pushBootstrap);void restoreChatPush();}},1000);window.addEventListener('pagehide',()=>{clearInterval(pushBootstrap);stopPushRenew();});
