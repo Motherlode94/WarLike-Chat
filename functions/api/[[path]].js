@@ -26,7 +26,7 @@ export async function onRequest({request,env}){
   if(path==='me'&&method==='GET')return json({user});
   if(!user)return json({error:'Connexion WarLike nécessaire.'},401);
   if((['meetings','contacts','push-config','push-subscriptions'].includes(path)&&method==='GET')||(['meeting-create','meeting-invite','meeting-close','contact-save','contact-delete','contact-flags','push-subscribe','push-unsubscribe'].includes(path)&&method==='POST')){if(!env.NETWORKS)return json({error:'Networks non configuré.'},503);const origin='https://warlike-networks.pages.dev';const body=method==='POST'?JSON.stringify(await readBody(request)):undefined;const r=await env.NETWORKS.fetch(new Request(origin+'/api/'+path,{method,headers:{origin,cookie:'__Host-warlike_networks='+readCookie(request),'content-type':'application/json'},body,redirect:'manual'}));return json(await r.json(),r.status);}
-  const canRead=async room=>!!await db.prepare('SELECT r.id FROM chat_rooms r LEFT JOIN chat_direct d ON d.room_id=r.id WHERE r.id=? AND (d.room_id IS NULL OR d.member_a=? OR d.member_b=?)').bind(room,user.id,user.id).first();
+  const canRead=async room=>!!await db.prepare('SELECT r.id FROM chat_rooms r LEFT JOIN chat_direct d ON d.room_id=r.id WHERE r.id=? AND ((d.room_id IS NULL AND r.id NOT LIKE \'dm-%\') OR d.member_a=? OR d.member_b=?)').bind(room,user.id,user.id).first();
   if(path==='members'&&method==='GET'){
    await db.prepare('INSERT INTO chat_presence(user_id,username,seen_at) VALUES (?,?,?) ON CONFLICT(user_id) DO UPDATE SET username=excluded.username,seen_at=excluded.seen_at').bind(user.id,String(user.username).slice(0,80),Date.now()).run();
    const r=await db.prepare('SELECT user_id AS id,username,seen_at FROM chat_presence WHERE user_id<>? ORDER BY username LIMIT 200').bind(user.id).all();return json({members:r.results.map(m=>({id:m.id,username:m.username,online:Date.now()-m.seen_at<45000}))});
@@ -38,7 +38,7 @@ export async function onRequest({request,env}){
    await db.prepare('INSERT OR IGNORE INTO chat_direct(room_id,member_a,member_b) VALUES (?,?,?)').bind(room,a,z).run();
    await db.prepare("INSERT OR IGNORE INTO chat_rooms(id,name,description) VALUES (?,'Privé','Conversation privée')").bind(room).run();return json({room});
   }
-  if(path==='rooms'&&method==='GET'){const r=await db.prepare("SELECT r.id,COALESCE(p.username,r.name) AS name,r.description FROM chat_rooms r LEFT JOIN chat_direct d ON d.room_id=r.id LEFT JOIN chat_presence p ON p.user_id=CASE WHEN d.member_a=? THEN d.member_b ELSE d.member_a END WHERE d.room_id IS NULL OR d.member_a=? OR d.member_b=? ORDER BY r.rowid").bind(user.id,user.id,user.id).all();return json({rooms:r.results});}
+  if(path==='rooms'&&method==='GET'){const r=await db.prepare("SELECT r.id,COALESCE(p.username,r.name) AS name,r.description FROM chat_rooms r LEFT JOIN chat_direct d ON d.room_id=r.id LEFT JOIN chat_presence p ON p.user_id=CASE WHEN d.member_a=? THEN d.member_b ELSE d.member_a END WHERE (d.room_id IS NULL AND r.id NOT LIKE 'dm-%') OR d.member_a=? OR d.member_b=? ORDER BY r.rowid").bind(user.id,user.id,user.id).all();return json({rooms:r.results});}
   if(path==='search'&&method==='GET'){
    const room=url.searchParams.get('room')||'general',q=(url.searchParams.get('q')||'').trim();
    if(q.length<2||q.length>100)return json({error:'Recherche : 2 à 100 caractères.'},400);
@@ -59,7 +59,7 @@ export async function onRequest({request,env}){
   }
   if(path==='moderate'&&method==='POST'){
    if(user.role!=='owner')return json({error:'Réservé au propriétaire.'},403);const b=await readBody(request);if(typeof b.id!=='string'||!/^[a-zA-Z0-9-]{1,64}$/.test(b.id))return json({error:'Message invalide.'},400);
-   const now=Date.now();const r=await db.prepare('UPDATE chat_messages SET deleted_at=?,deleted_by=? WHERE id=? AND deleted_at IS NULL AND room_id NOT IN (SELECT room_id FROM chat_direct)').bind(now,user.id,b.id).run();if(!r.meta.changes)return json({error:'Message introuvable.'},404);return json({ok:true});
+   const now=Date.now();const r=await db.prepare('UPDATE chat_messages SET deleted_at=?,deleted_by=? WHERE id=? AND deleted_at IS NULL AND room_id NOT LIKE \'dm-%\' AND room_id NOT IN (SELECT room_id FROM chat_direct)').bind(now,user.id,b.id).run();if(!r.meta.changes)return json({error:'Message introuvable.'},404);return json({ok:true});
   }
   return json({error:'Route introuvable.'},404);
  }catch(e){if(e instanceof SyntaxError)return json({error:'JSON invalide.'},400);if(e.message==='size')return json({error:'Requête trop volumineuse.'},413);if(e.message==='format')return json({error:'Requête invalide.'},400);return json({error:'Service temporairement indisponible.'},503);}
