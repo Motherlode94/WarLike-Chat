@@ -1,0 +1,2 @@
+# Chat private message notifications
+Configure CHAT_PUSH_DELIVERY service binding to warlike-networks-runtime named entrypoint ChatPushDelivery. Only a committed DM write schedules RPC via waitUntil. Sender and recipient derive from authenticated membership. No text, room ID or token is sent. RPC failures cannot undo the stored message. Public rooms, blocked writes and rate limited writes do not schedule delivery. Deploy Networks first and certify with delivery flag disabled before enabling production. Best effort, no durable retries.
