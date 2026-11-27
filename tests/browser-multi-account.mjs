@@ -4,7 +4,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
 import {onRequest} from '../functions/api/[[path]].js';
 const raw=new DatabaseSync(':memory:');
-for(const name of ['0002_warlike_chat','0003_private_chat'])raw.exec(readFileSync(new URL('../migrations/'+name+'.sql',import.meta.url),'utf8'));
+for(const name of ['0002_warlike_chat','0003_private_chat','0004_calls','0005_availability'])raw.exec(readFileSync(new URL('../migrations/'+name+'.sql',import.meta.url),'utf8'));
 const db={prepare(sql){const s=raw.prepare(sql);let args=[];return {bind(...a){args=a;return this},async first(){return s.get(...args)||null},async all(){return {results:s.all(...args)}},async run(){return {meta:{changes:Number(s.run(...args).changes)}}}}}};
 const identities=['Alice','Bob','Carol'].map((name,i)=>({id:'u'+i,name,role:'member',token:String.fromCharCode(65+i).repeat(43)}));
 const active=new Set();let blocked=false;
