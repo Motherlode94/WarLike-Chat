@@ -31,5 +31,10 @@ try{
  await page.getByText('Identifiants invalides',{exact:true}).waitFor();
  assert.ok(!page.url().includes('password'));
  assert.deepEqual(errors,[]);
+ assert.equal(await page.locator('#sharedContacts').count(),1);
+ await page.goto('http://127.0.0.1:8765/online.html');
+ await page.getByText('Connecte-toi avec ton compte WarLike.',{exact:true}).waitFor();
+ assert.equal(await page.locator('#sharedContacts').count(),1);
+ assert.deepEqual(errors,[]);
  console.log('PASS: Chat messages, persistence, search and room creation');
 }finally{await browser.close();}
